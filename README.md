@@ -8,7 +8,7 @@ Shakewell DynamoDB Sessions is not affiliated with, endorsed by or sponsored by 
 
 ## How it works
 
-On load it registers a PHP session save handler. Each session is one table item: `id` (string, the table's partition key), `data` and `expires` (epoch seconds). Requests are signed with AWS Signature Version 4 using the credentials in the environment or the EC2 instance role (IMDSv2). It needs the PHP `curl` extension and nothing from Composer at run time.
+On load it registers a PHP session save handler. Each session is one table item: `id` (string, the table's partition key), `data` (a Binary attribute, because session data is not always valid UTF-8) and `expires` (epoch seconds). Items written as strings by an older handler are still read. Requests are signed with AWS Signature Version 4 using the credentials in the environment or the EC2 instance role (IMDSv2). It needs the PHP `curl` extension and nothing from Composer at run time.
 
 It does not use WordPress's HTTP API, so WordPress proxy settings are never applied to DynamoDB or instance-metadata calls.
 
@@ -36,7 +36,7 @@ Each setting is a constant (in `wp-config.php`) or an environment variable of th
 
 The filter `shakewell_dynamodb_sessions_config` receives the resolved array (`table`, `region`, `ttl`, `endpoint`) and returns it. The handler registers while WordPress is still loading must-use plugins, so only a callback added before this file loads runs, for example from a must-use plugin that sorts before `000-`.
 
-There is no setting for credentials. Keys are never read from constants. The handler uses `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` from the environment if present (local development), otherwise the instance role. Use the instance role in production.
+There is no setting for credentials. Keys are never read from constants. The handler uses `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` from the environment if present (local development), otherwise the instance role. Use the instance role in production. Only those two sources are supported: not `AWS_CONTAINER_CREDENTIALS_*` (ECS), web identity (EKS) or shared credential files. Credentials are looked up once per request, so on a host with neither source each session request waits on the metadata service (up to three one-second timeouts) before falling back.
 
 There is no session locking: two simultaneous requests for one session can overwrite each other's changes. The last write wins, as with PHP files that are not locked.
 

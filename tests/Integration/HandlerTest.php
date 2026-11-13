@@ -89,7 +89,7 @@ final class HandlerTest extends WP_UnitTestCase {
 		$this->assertSame( 'DynamoDB_20120810.PutItem', $this->header( $req, 'X-Amz-Target' ) );
 		$this->assertSame( 'app-sessions', $body['TableName'] );
 		$this->assertSame( 'abc', $body['Item']['id']['S'] );
-		$this->assertSame( 'x|i:1;', $body['Item']['data']['S'] );
+		$this->assertSame( base64_encode( 'x|i:1;' ), $body['Item']['data']['B'] ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
 		$this->assertGreaterThanOrEqual( $before + 600, (int) $body['Item']['expires']['N'] );
 		$this->assertLessThanOrEqual( time() + 600, (int) $body['Item']['expires']['N'] );
 	}
@@ -110,7 +110,7 @@ final class HandlerTest extends WP_UnitTestCase {
 			$this->ok(
 				array(
 					'Item' => array(
-						'data'    => array( 'S' => 'x|i:1;' ),
+						'data'    => array( 'B' => base64_encode( 'x|i:1;' ) ), // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
 						'expires' => array( 'N' => (string) ( time() + 100 ) ),
 					),
 				)
@@ -118,6 +118,36 @@ final class HandlerTest extends WP_UnitTestCase {
 		);
 		$this->assertSame( 'x|i:1;', $handler->read( 'abc' ) );
 		$this->assertTrue( json_decode( $this->sent[0]['body'], true )['ConsistentRead'] );
+	}
+
+	public function test_binary_session_data_survives_a_round_trip(): void {
+		$binary = "\xff\x00" . random_bytes( 8 );
+		$store  = array();
+		$fake   = function ( $method, $url, $headers, $body ) use ( &$store ) {
+			$req = json_decode( $body, true );
+			if ( isset( $req['Item'] ) ) {
+				$store = $req['Item'];
+				return $this->ok();
+			}
+			return $this->ok( array( 'Item' => $store ) );
+		};
+		$handler = new Handler( 'eu-west-2', 'app-sessions', 600, '', $fake );
+		$this->assertTrue( $handler->write( 'abc', $binary ) );
+		$this->assertSame( $binary, $handler->read( 'abc' ) );
+	}
+
+	public function test_a_string_item_from_an_older_handler_is_still_read(): void {
+		$handler = $this->handler(
+			$this->ok(
+				array(
+					'Item' => array(
+						'data'    => array( 'S' => 'x|i:1;' ),
+						'expires' => array( 'N' => (string) ( time() + 100 ) ),
+					),
+				)
+			)
+		);
+		$this->assertSame( 'x|i:1;', $handler->read( 'abc' ) );
 	}
 
 	public function test_read_of_a_missing_session_is_empty_and_does_not_fall_back(): void {

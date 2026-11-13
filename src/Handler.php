@@ -10,7 +10,7 @@ namespace Shakewell\DynamoDbSessions;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Stores each session as one item: id (string key), data (string) and expires (number, epoch seconds).
+ * Stores each session as one item: id (string key), data (binary) and expires (number, epoch seconds).
  *
  * It signs its own requests (AWS Signature Version 4) with the default credential chain's two sources: the
  * AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and AWS_SESSION_TOKEN environment variables, then the EC2 instance role
@@ -130,8 +130,14 @@ final class Handler implements \SessionHandlerInterface {
 					)
 				);
 				// An expired item can linger until the table's TTL sweep removes it, so check the clock.
-				if ( isset( $res['Item']['data']['S'] ) && (int) ( $res['Item']['expires']['N'] ?? 0 ) > time() ) {
-					return (string) $res['Item']['data']['S'];
+				if ( (int) ( $res['Item']['expires']['N'] ?? 0 ) > time() ) {
+					if ( isset( $res['Item']['data']['B'] ) ) {
+						return (string) base64_decode( $res['Item']['data']['B'], true ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- decodes the stored binary session data, not code.
+					}
+					// Items written as plain strings (an older handler) are still read.
+					if ( isset( $res['Item']['data']['S'] ) ) {
+						return (string) $res['Item']['data']['S'];
+					}
 				}
 				return '';
 			} catch ( \Throwable $e ) {
@@ -156,7 +162,8 @@ final class Handler implements \SessionHandlerInterface {
 						'TableName' => $this->table,
 						'Item'      => array(
 							'id'      => array( 'S' => (string) $id ),
-							'data'    => array( 'S' => (string) $data ),
+							// Binary, because session data is not always valid UTF-8 and a string attribute must be.
+							'data'    => array( 'B' => base64_encode( (string) $data ) ), // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- encodes binary for DynamoDB, not obfuscation.
 							'expires' => array( 'N' => (string) ( time() + $this->lifetime ) ),
 						),
 					)
@@ -228,8 +235,12 @@ final class Handler implements \SessionHandlerInterface {
 	 * @throws \RuntimeException On any non-2xx answer.
 	 */
 	private function call( string $operation, array $payload ): array {
-		$c      = $this->credentials();
-		$body   = wp_json_encode( $payload );
+		$c    = $this->credentials();
+		$body = wp_json_encode( $payload );
+		if ( false === $body ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- caught and logged, never output.
+			throw new \RuntimeException( $operation . ' request could not be encoded as JSON' );
+		}
 		$target = 'DynamoDB_20120810.' . $operation;
 		$ctype  = 'application/x-amz-json-1.0';
 
