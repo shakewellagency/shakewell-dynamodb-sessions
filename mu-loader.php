@@ -1,8 +1,9 @@
 <?php
 /**
- * Plugin Name: Shakewell DynamoDB Sessions loader
- * Description: Copy this file into wp-content/mu-plugins/ (as 000-shakewell-dynamodb-sessions.php) so sessions start in DynamoDB before any plugin runs.
- * Author: Shakewell
+ * Must-use loader for Shakewell DynamoDB Sessions.
+ *
+ * Copy this file to wp-content/mu-plugins/000-shakewell-dynamodb-sessions.php so sessions start in DynamoDB before any
+ * plugin runs. It deliberately has no "Plugin Name" header: WordPress would list it as a second plugin.
  *
  * @package Shakewell\DynamoDbSessions
  */
